@@ -1,0 +1,21 @@
+Sample listing photos used by this demo project.
+
+Stored locally in this folder so the app also works without internet.
+
+p1-textbook.jpg        "College Textbooks" - Wikimedia Commons
+p2-calculator.jpg      "Casio fx-991MS scientific calculator" - Wikimedia Commons
+p3-desk.jpg            Generated placeholder photo of a wooden study table
+p4-mouse.jpg           "A black wireless computer mouse" - Wikimedia Commons
+p5-notes.jpg           "Notebook with pen, August 2019" - Wikimedia Commons
+p6-hoodie.jpg          "Sudadera urban" - Wikimedia Commons
+p7-rackets.jpg         "Heads of badminton raquets" - Wikimedia Commons
+p8-lamp.jpg            "Lamp with a lampshade illuminated by sunlight" - Wikimedia Commons
+p9-chemistry.jpg       "Coordination chemistry book" - Wikimedia Commons
+p10-calculator-old.jpg "Sharp Scientific Calculator" - Wikimedia Commons
+p11-drawing-board.jpg  "Zeichenmaschine" - Wikimedia Commons
+p12-physics.jpg        "Book. Grigory Landsberg. Physics." - Wikimedia Commons
+brand.jpg              "Graz University Library reading room" - Wikimedia Commons
+
+These are only sample photos for a college assignment. Each file keeps the
+license it was published under on Wikimedia Commons; check the file page
+there before reusing them outside this demo.
