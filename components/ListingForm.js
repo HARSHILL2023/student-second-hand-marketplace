@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CATEGORIES, CONDITIONS, LISTING_TYPES } from "@/lib/data";
+import { CATEGORIES, CONDITIONS, LISTING_TYPES } from "@/lib/constants";
+import { uploadImage } from "@/lib/apiClient";
 import { CategoryImage } from "./ProductImage";
 
 // Shared form used by the "Create Listing" and "Edit Listing" pages.
@@ -20,20 +21,29 @@ export default function ListingForm({ initialValues, onSubmit, submitLabel }) {
     initialValues?.listingType || LISTING_TYPES[0]
   );
   const [image, setImage] = useState(initialValues?.image || "");
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  // Read the chosen image file and keep it as a base64 string so it
-  // can be saved in localStorage.
-  function handleImageChange(event) {
-    const file = event.target.files[0];
+  // Upload the chosen photo straight away and keep only its URL.
+  async function handleImageChange(event) {
+    const file = event.target.files && event.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => setImage(reader.result);
-    reader.readAsDataURL(file);
+    setError("");
+    setUploading(true);
+
+    try {
+      const url = await uploadImage(file);
+      setImage(url);
+    } catch (uploadError) {
+      setError(uploadError.message);
+    } finally {
+      setUploading(false);
+    }
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
 
     if (name.trim() === "" || description.trim() === "") {
@@ -47,16 +57,23 @@ export default function ListingForm({ initialValues, onSubmit, submitLabel }) {
     }
 
     setError("");
+    setSaving(true);
 
-    onSubmit({
-      name: name.trim(),
-      description: description.trim(),
-      price: listingType === "For Sale" ? Number(price) : 0,
-      category,
-      condition,
-      listingType,
-      image,
-    });
+    try {
+      await onSubmit({
+        name: name.trim(),
+        description: description.trim(),
+        price: listingType === "For Sale" ? Number(price) : 0,
+        category,
+        condition,
+        listingType,
+        image,
+      });
+    } catch (submitError) {
+      setError(submitError.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -156,9 +173,12 @@ export default function ListingForm({ initialValues, onSubmit, submitLabel }) {
           type="file"
           accept="image/*"
           onChange={handleImageChange}
+          disabled={uploading}
         />
         <small>
-          A preview is shown below. If no image is chosen, a category icon is used.
+          {uploading
+            ? "Uploading image..."
+            : "Photos need Cloudinary settings on the server. Without them the listing uses a category icon."}
         </small>
 
         <div className="image-picker">
@@ -184,8 +204,8 @@ export default function ListingForm({ initialValues, onSubmit, submitLabel }) {
       {error && <p className="form-error">{error}</p>}
 
       <div className="form-actions">
-        <button className="btn" type="submit">
-          {submitLabel}
+        <button className="btn" type="submit" disabled={saving || uploading}>
+          {saving ? "Saving..." : submitLabel}
         </button>
         <button
           type="button"

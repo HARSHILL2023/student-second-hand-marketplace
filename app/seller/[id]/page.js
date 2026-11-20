@@ -1,24 +1,57 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
 import { CategoryImage, priceText } from "@/components/ProductImage";
-import { MailIcon, PhoneIcon, PinIcon } from "@/components/Icons";
-import { CURRENT_USER_ID, sellers } from "@/lib/data";
-import { useMarketplace } from "@/lib/store";
+import { PhoneIcon, CalendarIcon } from "@/components/Icons";
+import { api } from "@/lib/apiClient";
+import { useUser } from "@/components/UserProvider";
 
 export default function SellerProfilePage() {
   const params = useParams();
-  const { data } = useMarketplace();
+  const { user } = useUser();
 
-  const seller = sellers[params.id];
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [error, setError] = useState("");
 
-  if (!data) {
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+
+    api("/api/users/" + params.id)
+      .then((result) => {
+        if (active) {
+          setData(result);
+          setNotFound(false);
+        }
+      })
+      .catch((loadError) => {
+        if (!active) return;
+
+        if (/not found/i.test(loadError.message)) {
+          setNotFound(true);
+        } else {
+          setError(loadError.message);
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [params.id]);
+
+  if (loading) {
     return <p className="loading">Loading profile...</p>;
   }
 
-  if (!seller) {
+  if (notFound) {
     return (
       <div>
         <h2>Seller not found</h2>
@@ -30,38 +63,43 @@ export default function SellerProfilePage() {
     );
   }
 
-  const sellerProducts = data.products
-    .filter((product) => product.sellerId === seller.id)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  if (!data) {
+    return (
+      <div>
+        <h2>Could not load this profile</h2>
+        {error && <p className="form-error">{error}</p>}
+        <Link className="btn" href="/">
+          Back to marketplace
+        </Link>
+      </div>
+    );
+  }
 
-  const activeListings = sellerProducts.filter((product) => product.status === "available");
-  const historyListings = sellerProducts.filter((product) => product.status !== "available");
+  const { seller, listings } = data;
+  const isMe = Boolean(user) && user.id === seller.id;
+
+  const activeListings = listings.filter((item) => item.status === "available");
+  const historyListings = listings.filter((item) => item.status !== "available");
 
   return (
     <div>
       <h2>{seller.name}</h2>
-      <p className="page-intro">
-        {seller.id === CURRENT_USER_ID ? "Your seller profile" : "Student seller profile"}
-      </p>
+      <p className="page-intro">{isMe ? "Your seller profile" : "Student seller profile"}</p>
 
       <div className="panel panel-green">
         <div className="info-list" style={{ margin: "0 0 2px" }}>
           <p className="info-item">
-            <span>
-              <strong>Year &amp; Branch:</strong> {seller.year} - {seller.branch}
-            </span>
-          </p>
-          <p className="info-item">
-            <MailIcon />
-            <span>{seller.email}</span>
-          </p>
-          <p className="info-item">
             <PhoneIcon />
-            <span>{seller.phone}</span>
+            <span>{seller.phone || "Phone not shared"}</span>
           </p>
           <p className="info-item">
-            <PinIcon />
-            <span>{seller.hostel}</span>
+            <CalendarIcon />
+            <span>
+              Joined{" "}
+              {seller.createdAt
+                ? new Date(seller.createdAt).toLocaleDateString()
+                : "-"}
+            </span>
           </p>
         </div>
       </div>
@@ -76,7 +114,7 @@ export default function SellerProfilePage() {
           <span>Past Listings</span>
         </div>
         <div className="stat">
-          <strong>{sellerProducts.length}</strong>
+          <strong>{listings.length}</strong>
           <span>Total Listings</span>
         </div>
       </div>
@@ -90,7 +128,7 @@ export default function SellerProfilePage() {
             <ProductCard
               key={product.id}
               product={product}
-              isFavorite={data.favorites.includes(product.id)}
+              isFavorite={product.isFavorite}
             />
           ))}
         </div>

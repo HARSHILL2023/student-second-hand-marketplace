@@ -900,3 +900,51 @@ h3 {
     height: 220px;
   }
 }
+
+/* ---------- Session and authentication ---------- */
+
+.auth-alt {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.auth-alt a {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.sidebar-actions a,
+.sidebar-actions button {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background-color: transparent;
+  color: #dfe5d6;
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.sidebar-actions a:hover,
+.sidebar-actions button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #f1f4ea;
+}
+
+.sidebar-actions a.primary {
+  background-color: #edf1e3;
+  border-color: #edf1e3;
+  color: var(--green-dark);
+  font-weight: 600;
+}

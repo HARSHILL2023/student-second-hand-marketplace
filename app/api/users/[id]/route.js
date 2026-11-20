@@ -23,16 +23,18 @@ export async function GET(request, context) {
       return NextResponse.json({ error: "Seller not found." }, { status: 404 });
     }
 
-    const [listings, viewer] = await Promise.all([
-      Listing.find({ sellerId: user._id }).sort({ createdAt: -1 }).lean(),
-      getCurrentUser(),
-    ]);
+    const viewer = await getCurrentUser();
+    const isOwner = Boolean(viewer) && viewer._id.toString() === id;
+    const query = { sellerId: user._id };
+
+    // Inactive listings are private to their owner.
+    if (!isOwner) query.status = { $ne: "inactive" };
+
+    const listings = await Listing.find(query).sort({ createdAt: -1 }).lean();
 
     return NextResponse.json({
       seller: publicUser(user),
-      listings: listings.map((listing) =>
-        listingJSON(listing, viewer && viewer._id.toString() === id ? [] : [])
-      ),
+      listings: listings.map((listing) => listingJSON(listing)),
     });
   } catch (error) {
     console.error("Get seller error:", error.message);

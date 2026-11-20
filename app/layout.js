@@ -1,5 +1,6 @@
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
+import { UserProvider } from "@/components/UserProvider";
 
 export const metadata = {
   title: "Student Second-Hand Marketplace",
@@ -10,10 +11,12 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <div className="layout">
-          <Sidebar />
-          <main className="main">{children}</main>
-        </div>
+        <UserProvider>
+          <div className="layout">
+            <Sidebar />
+            <main className="main">{children}</main>
+          </div>
+        </UserProvider>
       </body>
     </html>
   );

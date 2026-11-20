@@ -1,31 +1,127 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
 import { CategoryImage, priceText } from "@/components/ProductImage";
-import { MailIcon, PhoneIcon, PinIcon, StarIcon } from "@/components/Icons";
-import { CURRENT_USER_ID, sellers } from "@/lib/data";
-import { addEnquiry, makeId, toggleFavorite, useMarketplace } from "@/lib/store";
+import { PhoneIcon, CalendarIcon, StarIcon } from "@/components/Icons";
+import { api } from "@/lib/apiClient";
+import { useUser } from "@/components/UserProvider";
 
 export default function ProductDetailsPage() {
   const params = useParams();
-  const { data, update } = useMarketplace();
+  const router = useRouter();
+  const { user, loading: sessionLoading } = useUser();
 
-  const [buyerName, setBuyerName] = useState("You (Demo Student)");
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [error, setError] = useState("");
+
   const [message, setMessage] = useState("");
   const [offer, setOffer] = useState("");
-  const [error, setError] = useState("");
+  const [enquiryError, setEnquiryError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [sending, setSending] = useState(false);
 
-  if (!data) {
+  const userId = user ? user.id : "";
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+
+    api("/api/listings/" + params.id)
+      .then((result) => {
+        if (active) {
+          setData(result);
+          setNotFound(false);
+        }
+      })
+      .catch((loadError) => {
+        if (!active) return;
+
+        if (/not found/i.test(loadError.message)) {
+          setNotFound(true);
+        } else {
+          setError(loadError.message);
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [params.id, userId]);
+
+  async function handleToggleFavorite() {
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    const nextValue = !data.isFavorite;
+
+    try {
+      if (nextValue) {
+        await api("/api/favorites", {
+          method: "POST",
+          body: { listingId: data.listing.id },
+        });
+      } else {
+        await api("/api/favorites/" + data.listing.id, { method: "DELETE" });
+      }
+
+      setData((current) => ({ ...current, isFavorite: nextValue }));
+    } catch (favoriteError) {
+      setError(favoriteError.message);
+    }
+  }
+
+  async function handleEnquirySubmit(event) {
+    event.preventDefault();
+    setEnquiryError("");
+
+    if (message.trim() === "") {
+      setEnquiryError("Please write a short message for the seller.");
+      return;
+    }
+
+    if (offer !== "" && Number(offer) <= 0) {
+      setEnquiryError("Please enter a valid offer amount, or leave the field empty.");
+      return;
+    }
+
+    setSending(true);
+
+    try {
+      await api("/api/enquiries", {
+        method: "POST",
+        body: {
+          listingId: data.listing.id,
+          message: message.trim(),
+          offerPrice: offer === "" ? null : Number(offer),
+        },
+      });
+
+      setMessage("");
+      setOffer("");
+      setSubmitted(true);
+    } catch (sendError) {
+      setEnquiryError(sendError.message);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (loading && !data) {
     return <p className="loading">Loading product...</p>;
   }
 
-  const product = data.products.find((item) => item.id === params.id);
-
-  if (!product) {
+  if (notFound) {
     return (
       <div>
         <h2>Product not found</h2>
@@ -37,67 +133,28 @@ export default function ProductDetailsPage() {
     );
   }
 
-  const seller = sellers[product.sellerId] || {
-    name: "Unknown Seller",
-    year: "-",
-    branch: "-",
-    email: "-",
-    phone: "-",
-    hostel: "-",
-  };
-
-  const isFavorite = data.favorites.includes(product.id);
-  const isOwnListing = product.sellerId === CURRENT_USER_ID;
-
-  // Similar products = same category, still available, not this one.
-  const similarProducts = data.products
-    .filter(
-      (item) =>
-        item.category === product.category &&
-        item.id !== product.id &&
-        item.status === "available"
-    )
-    .slice(0, 3);
-
-  function handleEnquirySubmit(event) {
-    event.preventDefault();
-
-    if (message.trim() === "") {
-      setError("Please write a short message for the seller.");
-      return;
-    }
-
-    if (offer !== "" && Number(offer) <= 0) {
-      setError("Please enter a valid offer amount, or leave the field empty.");
-      return;
-    }
-
-    setError("");
-
-    const enquiry = {
-      id: makeId("e"),
-      productId: product.id,
-      buyerName: buyerName.trim() || "Anonymous Student",
-      buyerId: CURRENT_USER_ID,
-      message: message.trim(),
-      offer: offer === "" ? null : Number(offer),
-      status: "pending",
-      response: "",
-      createdAt: new Date().toISOString(),
-    };
-
-    addEnquiry(update, enquiry);
-
-    setMessage("");
-    setOffer("");
-    setSubmitted(true);
+  if (!data) {
+    return (
+      <div>
+        <h2>Could not load the product</h2>
+        {error && <p className="form-error">{error}</p>}
+        <Link className="btn" href="/">
+          Back to marketplace
+        </Link>
+      </div>
+    );
   }
+
+  const { listing: product, seller, similar } = data;
+  const isOwnListing = Boolean(user) && product.sellerId === user.id;
 
   return (
     <div>
       <Link className="back-link" href="/">
         &larr; Back to marketplace
       </Link>
+
+      {error && <p className="form-error">{error}</p>}
 
       <div className="detail-layout">
         <div>
@@ -129,18 +186,20 @@ export default function ProductDetailsPage() {
           <button
             type="button"
             className="btn btn-outline"
-            aria-pressed={isFavorite}
-            onClick={() => toggleFavorite(update, product.id)}
+            aria-pressed={data.isFavorite}
+            onClick={handleToggleFavorite}
+            disabled={!user || sessionLoading}
+            title={user ? "" : "Log in to save favorites"}
           >
-            <StarIcon filled={isFavorite} />
-            {isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+            <StarIcon filled={data.isFavorite} />
+            {data.isFavorite ? "Remove from Favorites" : "Add to Favorites"}
           </button>
 
-          {similarProducts.length > 0 && (
+          {similar.length > 0 && (
             <div>
               <h3>Similar Products</h3>
               <div className="product-grid">
-                {similarProducts.map((item) => (
+                {similar.map((item) => (
                   <ProductCard key={item.id} product={item} />
                 ))}
               </div>
@@ -149,41 +208,45 @@ export default function ProductDetailsPage() {
         </div>
 
         <div>
-          {/* Seller information */}
+          {/* Seller information: only public fields are returned by the API. */}
           <div className="panel panel-green">
             <h3>Seller Information</h3>
             <p style={{ margin: "0 0 2px" }}>
-              <strong>{seller.name}</strong>
-            </p>
-            <p className="muted" style={{ margin: 0 }}>
-              {seller.year} - {seller.branch}
+              <strong>{seller ? seller.name : "Unknown seller"}</strong>
             </p>
 
             <div className="info-list">
               <p className="info-item">
-                <MailIcon />
-                <span>{seller.email}</span>
-              </p>
-              <p className="info-item">
                 <PhoneIcon />
-                <span>{seller.phone}</span>
+                <span>{seller && seller.phone ? seller.phone : "Phone not shared"}</span>
               </p>
               <p className="info-item">
-                <PinIcon />
-                <span>{seller.hostel}</span>
+                <CalendarIcon />
+                <span>
+                  Joined{" "}
+                  {seller && seller.createdAt
+                    ? new Date(seller.createdAt).toLocaleDateString()
+                    : "-"}
+                </span>
               </p>
             </div>
 
-            <Link className="btn btn-small" href={"/seller/" + product.sellerId}>
-              View Seller Profile
-            </Link>
+            {seller && (
+              <Link className="btn btn-small" href={"/seller/" + seller.id}>
+                View Seller Profile
+              </Link>
+            )}
           </div>
 
           {/* Enquiry form */}
           <div className="panel">
             <h3>Send an Enquiry</h3>
 
-            {isOwnListing ? (
+            {sessionLoading ? (
+              <p className="muted" style={{ marginBottom: 0 }}>
+                Checking your session...
+              </p>
+            ) : isOwnListing ? (
               <p className="muted" style={{ marginBottom: 0 }}>
                 This is your own listing. You cannot send an enquiry on it.
               </p>
@@ -191,24 +254,18 @@ export default function ProductDetailsPage() {
               <p className="muted" style={{ marginBottom: 0 }}>
                 This item is currently {product.status}, so enquiries are closed.
               </p>
+            ) : !user ? (
+              <p className="muted" style={{ marginBottom: 0 }}>
+                Please <Link href="/login">log in</Link> to send an enquiry to the seller.
+              </p>
             ) : (
               <>
                 <p className="muted">
                   Ask the seller a question. You can also offer a lower price (optional).
+                  Sending as <strong>{user.name}</strong>.
                 </p>
 
                 <form className="form" onSubmit={handleEnquirySubmit}>
-                  <div className="form-row">
-                    <label htmlFor="enquiry-name">Your Name</label>
-                    <input
-                      id="enquiry-name"
-                      type="text"
-                      value={buyerName}
-                      onChange={(event) => setBuyerName(event.target.value)}
-                      required
-                    />
-                  </div>
-
                   <div className="form-row">
                     <label htmlFor="enquiry-message">Message</label>
                     <textarea
@@ -233,7 +290,7 @@ export default function ProductDetailsPage() {
                     <small>Leave empty if you do not want to make an offer.</small>
                   </div>
 
-                  {error && <p className="form-error">{error}</p>}
+                  {enquiryError && <p className="form-error">{enquiryError}</p>}
 
                   {submitted && (
                     <p className="form-success">
@@ -242,8 +299,8 @@ export default function ProductDetailsPage() {
                   )}
 
                   <div className="form-actions">
-                    <button className="btn" type="submit">
-                      Submit Enquiry
+                    <button className="btn" type="submit" disabled={sending}>
+                      {sending ? "Sending..." : "Submit Enquiry"}
                     </button>
                   </div>
                 </form>

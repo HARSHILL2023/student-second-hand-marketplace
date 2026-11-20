@@ -2,24 +2,20 @@
 
 import { useRouter } from "next/navigation";
 import ListingForm from "@/components/ListingForm";
-import { CURRENT_USER_ID } from "@/lib/data";
-import { addProduct, makeId, useMarketplace } from "@/lib/store";
+import { api } from "@/lib/apiClient";
+import { useRequireAuth } from "@/components/UserProvider";
 
 export default function CreateListingPage() {
   const router = useRouter();
-  const { update } = useMarketplace();
+  const { user, loading } = useRequireAuth();
 
-  function handleCreate(values) {
-    const product = {
-      id: makeId("p"),
-      ...values,
-      status: "available",
-      sellerId: CURRENT_USER_ID,
-      createdAt: new Date().toISOString(),
-    };
-
-    addProduct(update, product);
+  async function handleCreate(values) {
+    await api("/api/listings", { method: "POST", body: values });
     router.push("/my-listings");
+  }
+
+  if (loading || !user) {
+    return <p className="loading">Checking your session...</p>;
   }
 
   return (

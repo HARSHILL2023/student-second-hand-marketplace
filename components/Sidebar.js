@@ -1,21 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { CURRENT_USER_ID, sellers } from "@/lib/data";
+import { usePathname, useRouter } from "next/navigation";
+import { useUser } from "./UserProvider";
 
-const links = [
+const baseLinks = [
   { href: "/", label: "Marketplace" },
   { href: "/favorites", label: "Favorites" },
   { href: "/create", label: "Sell an Item" },
   { href: "/my-listings", label: "My Listings" },
   { href: "/enquiries", label: "Enquiries" },
-  { href: "/seller/" + CURRENT_USER_ID, label: "My Profile" },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const user = sellers[CURRENT_USER_ID];
+  const router = useRouter();
+  const { user, loading, logout } = useUser();
+
+  const links = user
+    ? [...baseLinks, { href: "/seller/" + user.id, label: "My Profile" }]
+    : baseLinks;
+
+  async function handleLogout() {
+    try {
+      await logout();
+    } catch (error) {
+      // The session is gone either way, so continue to the marketplace.
+    }
+
+    router.push("/");
+  }
 
   return (
     <aside className="sidebar">
@@ -41,8 +55,31 @@ export default function Sidebar() {
       </nav>
 
       <div className="sidebar-user">
-        <strong>{user.name}</strong>
-        {user.year} - {user.branch}
+        {loading ? (
+          <p style={{ margin: 0 }}>Checking your session...</p>
+        ) : user ? (
+          <>
+            <strong>{user.name}</strong>
+            <p style={{ margin: "2px 0 0" }}>Logged in</p>
+            <div className="sidebar-actions">
+              <Link href={"/seller/" + user.id}>View Profile</Link>
+              <button type="button" onClick={handleLogout}>
+                Log Out
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <strong>Guest</strong>
+            <p style={{ margin: "2px 0 0" }}>Log in to buy and sell.</p>
+            <div className="sidebar-actions">
+              <Link className="primary" href="/login">
+                Log In
+              </Link>
+              <Link href="/register">Create Account</Link>
+            </div>
+          </>
+        )}
       </div>
     </aside>
   );

@@ -1,39 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CURRENT_USER_ID } from "@/lib/data";
-import { respondToEnquiry, useMarketplace } from "@/lib/store";
+import { api } from "@/lib/apiClient";
+import { useRequireAuth } from "@/components/UserProvider";
 
 // One enquiry card. Used for both received and sent enquiries.
-function EnquiryCard({ enquiry, product, received, onRespond }) {
+function EnquiryCard({ enquiry, received, onRespond, busy }) {
   const [reply, setReply] = useState("");
-
-  function handleRespond(status) {
-    const note =
-      reply.trim() !== ""
-        ? reply.trim()
-        : status === "accepted"
-        ? "Offer accepted. Please collect the item at the decided time."
-        : "Sorry, I cannot accept this offer.";
-
-    onRespond(enquiry.id, status, note);
-  }
 
   return (
     <article className="enquiry">
       <div className="enquiry-head">
         <div>
           <h3>
-            {product ? (
-              <Link href={"/products/" + product.id}>{product.name}</Link>
+            {enquiry.listingName ? (
+              <Link href={"/products/" + enquiry.listingId}>{enquiry.listingName}</Link>
             ) : (
-              "Deleted listing"
+              "Listing removed"
             )}
           </h3>
           <p className="muted" style={{ margin: 0 }}>
-            From: <strong>{enquiry.buyerName}</strong> &middot;{" "}
-            {new Date(enquiry.createdAt).toLocaleDateString()}
+            {received ? (
+              <>
+                From: <strong>{enquiry.buyerName}</strong>
+              </>
+            ) : (
+              <>
+                To: <strong>{enquiry.sellerName || "Seller"}</strong>
+              </>
+            )}{" "}
+            &middot; {new Date(enquiry.createdAt).toLocaleDateString()}
           </p>
         </div>
 
@@ -42,7 +39,9 @@ function EnquiryCard({ enquiry, product, received, onRespond }) {
 
       <p className="enquiry-message">{enquiry.message}</p>
 
-      {enquiry.offer !== null && <p className="enquiry-offer">Offer: ₹{enquiry.offer}</p>}
+      {enquiry.offerPrice !== null && enquiry.offerPrice !== undefined && (
+        <p className="enquiry-offer">Offer: ₹{enquiry.offerPrice}</p>
+      )}
 
       {enquiry.response && <p className="enquiry-reply">Reply: {enquiry.response}</p>}
 
@@ -59,14 +58,16 @@ function EnquiryCard({ enquiry, product, received, onRespond }) {
           <button
             type="button"
             className="btn btn-small"
-            onClick={() => handleRespond("accepted")}
+            disabled={busy}
+            onClick={() => onRespond(enquiry.id, "accepted", reply)}
           >
             Accept
           </button>
           <button
             type="button"
             className="btn btn-small btn-outline"
-            onClick={() => handleRespond("rejected")}
+            disabled={busy}
+            onClick={() => onRespond(enquiry.id, "rejected", reply)}
           >
             Reject
           </button>
@@ -77,38 +78,76 @@ function EnquiryCard({ enquiry, product, received, onRespond }) {
 }
 
 export default function EnquiriesPage() {
-  const { data, update } = useMarketplace();
+  const { user, loading: sessionLoading } = useRequireAuth();
 
-  if (!data) {
+  const [inbox, setInbox] = useState(null);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState("");
+
+  useEffect(() => {
+    if (!user) return;
+
+    let active = true;
+
+    api("/api/enquiries")
+      .then((data) => {
+        if (active) setInbox(data);
+      })
+      .catch((loadError) => {
+        if (active) {
+          setError(loadError.message);
+          setInbox({ received: [], sent: [] });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  async function handleRespond(enquiryId, status, response) {
+    setBusyId(enquiryId);
+    setError("");
+
+    const note =
+      response.trim() !== ""
+        ? response.trim()
+        : status === "accepted"
+        ? "Offer accepted. Please collect the item at the decided time."
+        : "Sorry, I cannot accept this offer.";
+
+    try {
+      const data = await api("/api/enquiries/" + enquiryId, {
+        method: "PATCH",
+        body: { status, response: note },
+      });
+
+      setInbox((current) => ({
+        ...current,
+        received: current.received.map((item) =>
+          item.id === enquiryId ? data.enquiry : item
+        ),
+      }));
+    } catch (respondError) {
+      setError(respondError.message);
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  if (sessionLoading || !user || inbox === null) {
     return <p className="loading">Loading enquiries...</p>;
   }
 
-  const myProductIds = data.products
-    .filter((product) => product.sellerId === CURRENT_USER_ID)
-    .map((product) => product.id);
-
-  // Enquiries that other students sent on my listings.
-  const received = data.enquiries.filter(
-    (enquiry) => myProductIds.includes(enquiry.productId) && enquiry.buyerId !== CURRENT_USER_ID
-  );
-
-  // Enquiries that I sent to other sellers.
-  const sent = data.enquiries.filter((enquiry) => enquiry.buyerId === CURRENT_USER_ID);
-
-  const pendingCount = received.filter((enquiry) => enquiry.status === "pending").length;
-
-  function findProduct(productId) {
-    return data.products.find((product) => product.id === productId);
-  }
-
-  function handleRespond(enquiryId, status, response) {
-    respondToEnquiry(update, enquiryId, status, response);
-  }
+  const { received, sent } = inbox;
+  const pendingCount = received.filter((item) => item.status === "pending").length;
 
   return (
     <div>
       <h2>Enquiries and Offers</h2>
       <p className="page-intro">Questions and price offers between buyers and sellers.</p>
+
+      {error && <p className="form-error">{error}</p>}
 
       <div className="stats">
         <div className="stat">
@@ -133,8 +172,8 @@ export default function EnquiriesPage() {
           <EnquiryCard
             key={enquiry.id}
             enquiry={enquiry}
-            product={findProduct(enquiry.productId)}
             received={true}
+            busy={busyId === enquiry.id}
             onRespond={handleRespond}
           />
         ))
@@ -150,8 +189,8 @@ export default function EnquiriesPage() {
           <EnquiryCard
             key={enquiry.id}
             enquiry={enquiry}
-            product={findProduct(enquiry.productId)}
             received={false}
+            busy={false}
             onRespond={handleRespond}
           />
         ))

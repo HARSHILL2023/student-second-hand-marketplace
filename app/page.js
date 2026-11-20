@@ -1,63 +1,106 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import ProductCard from "@/components/ProductCard";
-import { CATEGORIES, CONDITIONS } from "@/lib/data";
-import { toggleFavorite, useMarketplace } from "@/lib/store";
+import { CATEGORIES, CONDITIONS } from "@/lib/constants";
+import { api } from "@/lib/apiClient";
+import { useUser } from "@/components/UserProvider";
 
 export default function HomePage() {
-  const { data, update } = useMarketplace();
+  const router = useRouter();
+  const { user } = useUser();
+
+  const [listings, setListings] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [condition, setCondition] = useState("All");
   const [priceRange, setPriceRange] = useState("all");
   const [sort, setSort] = useState("newest");
 
-  if (!data) {
-    return <p className="loading">Loading marketplace...</p>;
-  }
+  // Wait a moment after typing before asking the server.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  // 1. Only show products that are available (not sold / reserved / inactive)
-  let products = data.products.filter((product) => product.status === "available");
+  const query = useMemo(() => {
+    const params = new URLSearchParams();
 
-  // 2. Search by name or description
-  if (search.trim() !== "") {
-    const text = search.toLowerCase();
-    products = products.filter(
-      (product) =>
-        product.name.toLowerCase().includes(text) ||
-        product.description.toLowerCase().includes(text)
-    );
-  }
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    if (category !== "All") params.set("category", category);
+    if (condition !== "All") params.set("condition", condition);
 
-  // 3. Filter by category
-  if (category !== "All") {
-    products = products.filter((product) => product.category === category);
-  }
+    if (priceRange === "under200") {
+      params.set("maxPrice", "199");
+    } else if (priceRange === "200-500") {
+      params.set("minPrice", "200");
+      params.set("maxPrice", "500");
+    } else if (priceRange === "above500") {
+      params.set("minPrice", "501");
+    }
 
-  // 4. Filter by condition
-  if (condition !== "All") {
-    products = products.filter((product) => product.condition === condition);
-  }
+    params.set("sort", sort);
+    return params.toString();
+  }, [debouncedSearch, category, condition, priceRange, sort]);
 
-  // 5. Filter by price
-  if (priceRange === "under200") {
-    products = products.filter((product) => product.price < 200);
-  } else if (priceRange === "200-500") {
-    products = products.filter((product) => product.price >= 200 && product.price <= 500);
-  } else if (priceRange === "above500") {
-    products = products.filter((product) => product.price > 500);
-  }
+  const userId = user ? user.id : "";
 
-  // 6. Sort
-  products = [...products];
-  if (sort === "newest") {
-    products.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  } else if (sort === "price-low") {
-    products.sort((a, b) => a.price - b.price);
-  } else if (sort === "price-high") {
-    products.sort((a, b) => b.price - a.price);
+  // The user id is included so the saved stars refresh after login/logout.
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+
+    api("/api/listings?" + query)
+      .then((data) => {
+        if (active) setListings(data.listings);
+      })
+      .catch((loadError) => {
+        if (active) {
+          setError(loadError.message);
+          setListings([]);
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [query, userId]);
+
+  async function handleToggleFavorite(id) {
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    const target = (listings || []).find((item) => item.id === id);
+    if (!target) return;
+
+    setError("");
+
+    try {
+      if (target.isFavorite) {
+        await api("/api/favorites/" + id, { method: "DELETE" });
+      } else {
+        await api("/api/favorites", { method: "POST", body: { listingId: id } });
+      }
+
+      setListings((items) =>
+        items.map((item) =>
+          item.id === id ? { ...item, isFavorite: !item.isFavorite } : item
+        )
+      );
+    } catch (favoriteError) {
+      setError(favoriteError.message);
+    }
   }
 
   return (
@@ -127,25 +170,34 @@ export default function HomePage() {
         </div>
       </div>
 
-      <p className="results-line">
-        {products.length} listing{products.length === 1 ? "" : "s"} found
-      </p>
+      {error && <p className="form-error">{error}</p>}
 
-      {products.length === 0 ? (
-        <div className="empty">
-          No products match your search. Try a different keyword or clear the filters.
-        </div>
+      {listings === null ? (
+        <p className="loading">Loading marketplace...</p>
       ) : (
-        <div className="product-grid">
-          {products.map((product) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              isFavorite={data.favorites.includes(product.id)}
-              onToggleFavorite={(id) => toggleFavorite(update, id)}
-            />
-          ))}
-        </div>
+        <>
+          <p className="results-line">
+            {listings.length} listing{listings.length === 1 ? "" : "s"} found
+            {loading ? " - updating..." : ""}
+          </p>
+
+          {listings.length === 0 ? (
+            <div className="empty">
+              No products match your search. Try a different keyword or clear the filters.
+            </div>
+          ) : (
+            <div className="product-grid">
+              {listings.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  isFavorite={product.isFavorite}
+                  onToggleFavorite={handleToggleFavorite}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
